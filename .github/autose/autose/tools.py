@@ -248,7 +248,12 @@ def command_handler(sandbox: Any, recorder: list | None = None) -> Callable[[dic
         timeout = args.get('timeout_seconds')
         # Agents may shorten the configured limit (budgets.command_timeout_seconds), never extend it.
         timeout = max(5, min(int(timeout), sandbox.timeout)) if timeout else None
-        result = sandbox.run(args['command'], timeout)
+        cmd = args['command']
+        scratch = getattr(sandbox, 'extra_env', {}).get('SCRATCH')
+        if scratch:
+            cmd = re.sub(r'(^|[\s\'"=])(?:\./)?scratch(/|[\s\'"]|$)', r'\g<1>' + str(scratch) + r'\g<2>', cmd)
+        result = sandbox.run(cmd, timeout)
+        result.command = args['command']
         if recorder is not None:
             recorder.append(result)
         return ToolOutput(result.render(), is_error=bool(result.denied or result.timed_out))
