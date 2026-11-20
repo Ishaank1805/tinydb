@@ -553,6 +553,9 @@ class Table:
 
         # Perform the update operation for documents specified by a query
 
+        # Generators can only be consumed once, so materialize them first
+        updates = list(updates)
+
         # Collect affected doc_ids
         updated_ids = []
 
@@ -574,6 +577,10 @@ class Table:
 
                         # Perform the update (see above)
                         perform_update(fields, table, doc_id)
+
+                        # A document only needs to be updated once; this
+                        # also keeps the returned ID list free of duplicates
+                        break
 
         # Perform the update operation (see _update_table for details)
         self._update_table(updater)

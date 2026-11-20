@@ -394,6 +394,16 @@ def test_update_multiple_operation(db: TinyDB):
     assert db.count(where('int') == 2) == 2
 
 
+def test_update_multiple_generator(db: TinyDB):
+    ids = db.update_multiple(
+        ({'int': n}, where('char') == c) for n, c in [(7, 'a'), (8, 'b')]
+    )
+
+    assert sorted(ids) == [1, 2]
+    assert db.count(where('int') == 7) == 1
+    assert db.count(where('int') == 8) == 1
+
+
 def test_upsert(db: TinyDB):
     assert len(db) == 3
 
