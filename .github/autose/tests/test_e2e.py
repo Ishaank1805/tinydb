@@ -81,6 +81,10 @@ DESIGN = {'summary': 'Materialise the updates iterable once in Table.update_mult
           'architecture_notes': 'Table owns document updates.'}
 ANCHOR = '        # Perform the update operation for documents specified by a query\n\n        # Collect affected doc_ids\n'
 WRONG = '                for fields, cond in updates:\n'
+PROBE = ("from tinydb import TinyDB, where\nfrom tinydb.storages import MemoryStorage\n"
+         "db = TinyDB(storage=MemoryStorage)\ndb.insert_multiple([{'a': 1}, {'a': 2}])\n"
+         "print('updated ids', sorted(db.update_multiple((({'a': 9}, where('a') == i) for i in (1, 2)))))\n")
+
 REVIEW = {'verdict': 'approve', 'target_stage': 'none', 'summary': 'The generator is materialised once; behaviour '
           'for lists is unchanged.', 'findings': [], 'probes': 'ran a generator probe in scratch',
           'issue_checklist': [{'requirement': 'generator input updates every matching document', 'status': 'met',
@@ -121,6 +125,8 @@ def responder(system, messages, tools):
                   [('submit_tests', {'mapping': [{'ac_id': f'AC-{i}', 'tests': ['x']} for i in (1, 2, 3)]})]],
         'review': [[('submit_review', REVIEW)],
                    [('run_command', {'command': 'python -m pytest -q -p no:cacheprovider -o addopts='})],
+                   [('write_file', {'path': 'scratch/probe.py', 'content': PROBE})],
+                   [('run_command', {'command': 'bash $SCRATCH/compare.sh probe.py'})],
                    [('get_diff', {})], [('submit_review', REVIEW)]],
     }
     if role == 'impl':
@@ -272,6 +278,12 @@ def test_issue_to_reviewed_pr(tmp_path, monkeypatch, source_repo, venv, variant)
     assert 'Evidence recorded by the harness' in review_md
     transcripts = ''.join(p.read_text() for p in (tmp_path / 'review-state' / 'transcripts').glob('*'))
     assert 'run the test suite yourself before approving' in transcripts     # evidence gate fired first
+    assert 'run at least one probe of your own' in transcripts               # reviewer v2: probe required
+    # the pre-change tree rebuilt from the diff really is the old code: the bug shows only there
+    head_out, base_out = transcripts.split('=== before the change ===')[:2]
+    assert 'updated ids [1, 2]' in head_out and 'updated ids [1]' in base_out
+    assert {'path': 'tinydb/table.py', 'name': 'Table.update_multiple', 'change': 'changed'} in verdict['diff_facts']['functions']
+    assert verdict['diff_facts']['edited_tests'] == [] and 'Facts the harness gave the reviewer' in review_md
 
     # --- final report job --------------------------------------------------------
     artifacts = tmp_path / 'artifacts'

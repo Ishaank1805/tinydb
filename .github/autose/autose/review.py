@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from . import events as gha
-from . import prompts, render
+from . import difffacts, prompts, render
 from .config import Config
 from .context import build_ctx
 from .github import GitHub, GitHubError
@@ -29,7 +29,8 @@ VERDICT_LABEL = {'approve': 'autose:approved', 'request_changes': 'autose:change
                  'error': 'autose:needs-human'}
 
 
-def review_problems(args: dict, commands: list, require_evidence: bool = True) -> list[str]:
+def review_problems(args: dict, commands: list, require_evidence: bool = True, require_probe: bool = False,
+                    probe_markers: tuple = ('compare.sh', '$SCRATCH')) -> list[str]:
     """Evidence gate: why a submitted review contradicts itself (empty list = consistent)."""
     problems = []
     test_runs = [c for c in commands if re.search(r'\bpytest\b', c.command) and not c.denied]
@@ -44,6 +45,9 @@ def review_problems(args: dict, commands: list, require_evidence: bool = True) -
             problems.append('approval needs every checklist item met; not met/unclear: ' + '; '.join(unmet))
         if blocking:
             problems.append('approval is inconsistent with blocker/major findings')
+        if require_probe and not any(any(m in c.command for m in probe_markers) and not c.denied for c in commands):
+            problems.append('run at least one probe of your own before approving (for example '
+                            '`bash $SCRATCH/compare.sh probe.py`)')
     else:
         if not blocking:
             problems.append('request_changes needs at least one blocker or major finding (or approve and '
@@ -107,13 +111,31 @@ def review(cfg: Config, secrets: Any, make_llm: Any = None) -> int:
     scratch = ctx.scratch / 'review-scratch'
     ctx.sandbox.extra_env['SCRATCH'] = str(scratch)
     ws = Workspace(ctx.repo_dir, cfg.get('target.hidden_globs') or [], ctx.protected_globs, [], scratch=scratch)
+    diff_text = diff_path.read_text(encoding='utf-8', errors='replace')
+    base_dir, base_status = scratch / 'base', 'not provided in this variant'
+    if cfg.get('review.base_tree'):
+        error = difffacts.build_base_tree(ctx.repo_dir, diff_path, base_dir)
+        if error:
+            base_status = f'unavailable ({error})'
+        else:
+            difffacts.write_compare_script(scratch)
+            base_status = 'rebuilt from the diff at $BASE (scratch/base for read_file)'
+    ctx.sandbox.extra_env.update(REPO=str(ctx.repo_dir), BASE=str(base_dir))
+    diff_facts, facts_md = {}, ''
+    if cfg.get('review.diff_facts'):
+        issue_text = f"{ctx.issue.get('title', '')}\n{ctx.issue.get('body', '')}"
+        diff_facts = difffacts.compute(diff_text, ctx.repo_dir, base_dir if base_dir.is_dir() else None, issue_text,
+                                       ctx.source_globs, cfg.get('target.test_dir') or 'tests', ctx.doc_globs)
+        facts_md = difffacts.markdown(diff_facts, base_status)
+    require_probe = bool(cfg.get('review.require_probe', False))
+    probe_markers = ('compare.sh', '$SCRATCH', '${SCRATCH}', str(scratch))
     commands: list = []
     require_evidence = bool(cfg.get('review.require_evidence', True))
     seen = {'n': 0}
 
     def submit_review(args: dict) -> ToolOutput:
         seen['n'] += 1
-        problems = review_problems(args, commands, require_evidence)
+        problems = review_problems(args, commands, require_evidence, require_probe, probe_markers)
         if not problems:
             if args['verdict'] == 'approve':
                 args['target_stage'] = 'none'
@@ -136,13 +158,17 @@ def review(cfg: Config, secrets: Any, make_llm: Any = None) -> int:
         f"The diff has {diff_lines} lines: read it with get_diff. The repository is checked out at the PR head "
         f"({str(meta['head_sha'])[:12]}).",
         _context_block(cfg, meta),
+        facts_md,
+        ('The code before the change is rebuilt from the diff at $BASE (read it as scratch/base/...). '
+         '`bash $SCRATCH/compare.sh <script>` runs one of your probe scripts on the PR head and on that code.')
+        if base_dir.is_dir() else '',
         f"The full suite runs with: `{cfg.req('target.test')}`. Probe files you write under scratch/ live at "
         '$SCRATCH for run_command (e.g. `python -m pytest -q -p no:cacheprovider -o addopts= $SCRATCH/test_probe.py`).',
         'Follow your review procedure, then call submit_review.',
     ]))
     error, payload = '', None
     try:
-        result = ctx.run_agent('reviewer', 'review', prompts.system('reviewer'), handlers, 'submit_review', task)
+        result = ctx.run_agent('reviewer', 'review', prompts.system(cfg.get('review.prompt') or 'reviewer'), handlers, 'submit_review', task)
         if result.outcome == 'accepted':
             payload = result.payload
         elif result.outcome == 'inconsistent':
@@ -163,7 +189,8 @@ def review(cfg: Config, secrets: Any, make_llm: Any = None) -> int:
             'implementer_context': bool(cfg.get('review.include_implementer_context')),
             'verdict': payload['verdict'] if payload else 'error',
             'target_stage': payload['target_stage'] if payload else 'none',
-            'review': payload, 'facts': facts, 'error': error, 'usage': ctx.ledger.summary()}
+            'review': payload, 'facts': facts, 'error': error, 'usage': ctx.ledger.summary(),
+            'prompt': cfg.get('review.prompt') or 'reviewer', 'diff_facts': diff_facts, 'diff_facts_md': facts_md}
     ctx.events.emit('review_submitted', verdict=data['verdict'], target=data['target_stage'], round=round_no)
     (ctx.state.root / 'review.json').write_text(json.dumps(data, indent=2), encoding='utf-8')
     ctx.state.write_artifact('review.md', render.review_md(data, payload, facts, error))

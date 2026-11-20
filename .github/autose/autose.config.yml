@@ -69,6 +69,11 @@ review:
   # The reviewer may only APPROVE after running the tests itself and marking
   # every requirement it derived from the issue as met.
   require_evidence: true
+  # Reviewer v2 (design change after the reviewer missed the seeded defects of the first campaign):
+  prompt: reviewer                  # prompts/reviewer.md; the variant reviewer-v1 uses prompts/reviewer_v1.md
+  diff_facts: true                  # harness-computed facts: changed functions, edited existing tests
+  base_tree: true                   # code before the change, rebuilt from the diff, for probes on both versions
+  require_probe: true               # approval needs at least one probe of the reviewer's own
 
 judge:
   # LLM judge used next to the structural check for "all acceptance criteria
@@ -172,3 +177,7 @@ variants:
     pipeline: {shared_context: true}
   no-review-loop:                   # D2 experiment: one review, no rework
     pipeline: {max_change_requests: 0}
+  reviewer-v1:                      # the first campaign's reviewer, for the before/after comparison
+    review: {prompt: reviewer_v1, diff_facts: false, base_tree: false, require_probe: false}
+    agents:
+      reviewer: {provider: gemini}  # same model as reviewer v2, on my account's quota

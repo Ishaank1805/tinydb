@@ -49,3 +49,13 @@ def test_the_review_evidence_gate():
     change = {'verdict': 'request_changes', 'target_stage': 'design', 'issue_checklist': [], 'findings': []}
     assert review_problems(change, [passed])                        # no blocking finding
     assert review_problems(dict(change, findings=[major]), []) == []
+
+
+def test_reviewer_v2_needs_a_probe_of_its_own_before_approving():
+    suite = CmdResult('python -m pytest -q', 0, '', 1.0)
+    probe = CmdResult('bash $SCRATCH/compare.sh probe.py', 0, '', 1.0)
+    approve = {'verdict': 'approve', 'target_stage': 'none', 'findings': [],
+               'issue_checklist': [{'requirement': 'r', 'status': 'met', 'evidence': 'e'}]}
+    assert review_problems(dict(approve), [suite], True, require_probe=False) == []
+    assert any('probe' in p for p in review_problems(dict(approve), [suite], True, require_probe=True))
+    assert review_problems(dict(approve), [probe, suite], True, require_probe=True) == []
