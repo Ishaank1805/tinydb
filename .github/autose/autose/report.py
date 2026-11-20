@@ -130,8 +130,10 @@ def run_report(cfg: Any, secrets: Any) -> int:
     summary = {'run_id': env.get('GITHUB_RUN_ID'), 'run_url': run_url, 'repository': env.get('GITHUB_REPOSITORY'),
                'mode': gate.get('mode'), 'issue': gate.get('issue'), 'variant': gate.get('variant'),
                'branch': gate.get('branch'), 'pr': pr, 'pr_url': pr_url, 'outcome': result,
-               'stopped_stage': (last_build.get('outputs') or {}).get('stopped_stage', ''),
-               'stop_reason': (last_build.get('outputs') or {}).get('reason', ''),
+               'stopped_stage': (last_build.get('outputs') or {}).get('stopped_stage') or next(
+                   (st.get('stopped_stage') for st in reversed(states) if st.get('stopped_stage')), ''),
+               'stop_reason': (last_build.get('outputs') or {}).get('reason') or next(
+                   (st.get('stop_reason') for st in reversed(states) if st.get('stop_reason')), ''),
                'jobs': {name: {'result': v.get('result'), 'outputs': v.get('outputs')} for name, v in needs.items()},
                'reviews': reviews, 'progress': {s['artifact']: s.get('progress') for s in states},
                'tokens': totals, 'est_cost_usd': round(cost, 4), 'usage_by_job': data['usage']}
