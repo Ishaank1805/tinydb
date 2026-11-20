@@ -1,0 +1,174 @@
+# AutoSE configuration.
+#
+# Everything an agent is allowed to do is declared here and ENFORCED IN CODE
+# (autose/tools.py, autose/sandbox.py, autose/checks.py), not by prompts.
+# Experiment variants (bottom of the file) override parts of this file.
+
+version: 1
+
+repository:
+  # Hard guard: every job refuses to run in any other repository, so the
+  # workflow can never act on the upstream project. Set this to your fork.
+  allowed: ["Ishaank1805/tinydb"]
+  branch_prefix: "autose/issue-"
+
+trigger:
+  # Must match the literals in .github/workflows/autose.yml (`doctor` checks).
+  label: autose
+  command: /autose
+  # Minimum repository permission of the person who triggers a run.
+  min_permission: write            # write | maintain | admin
+
+target:
+  # Commands run inside the target checkout, in a dedicated virtualenv that
+  # is separate from the harness's own Python environment.
+  setup: >-
+    python -m pip install --disable-pip-version-check -q -e .
+    "pytest~=9.0" "pytest-cov~=7.0"
+  # Stage 3 check "the code builds": byte-compile + import the package.
+  build: python -m compileall -q tinydb && python -c "import tinydb"
+  # Full test suite (coverage addopts from pytest.ini are switched off; the
+  # pass/fail result is the same and the output stays readable).
+  test: python -m pytest -q -p no:cacheprovider -o addopts=
+  # Lists test node ids (used for "no existing test disappeared").
+  collect: python -m pytest --collect-only -q -p no:cacheprovider -o addopts=
+  source_globs: ["tinydb/**"]
+  doc_globs: ["docs/**", "README.rst"]
+  test_dir: tests
+  # The test author may create exactly this file and nothing else.
+  new_test_file: "tests/test_issue_{issue}.py"
+  # Your A2 architecture documentation (repo-relative). Given to the designer.
+  architecture_doc: ARCHITECTURE.md
+  # Never readable by any agent (the harness itself, git internals).
+  hidden_globs: [".git/**", ".github/autose/**"]
+  # Never writable by any agent, whatever else is configured.
+  protected_globs: [".github/**", ".git/**"]
+
+pipeline:
+  requirements_max_submissions: 3   # spec revisions while the testability check fails
+  design_max_submissions: 3         # design revisions while the plan check fails
+  max_impl_attempts: 3              # implement -> test loop per design
+  max_redesigns: 1                  # failing tests / implementer request -> back to design
+  max_test_revisions: 1             # implementer may dispute an acceptance test once
+  # Reviewer -> back to the stage that needs fixing, at most this many times.
+  # Each rework is followed by a fresh independent review. Must be 0, 1 or 2
+  # (the workflow unrolls two rework rounds).
+  max_change_requests: 2
+  # "soft": if no new test fails on the base code, ask the test author once to
+  # strengthen the tests, then continue with a warning. "hard": stop instead.
+  fail_to_pass: soft                # soft | hard | off
+  ci_workflow: ci.yml               # dispatched on the PR branch in stage 5
+  ci_timeout_minutes: 20
+  # Variant knob for D1: one agent session (shared context) runs stages 1-4.
+  shared_context: false
+
+review:
+  # Variant knob for D8: also show the reviewer the implementer's design.md
+  # and PR description (pr.md). Baseline: false (issue + diff + repo only).
+  include_implementer_context: false
+  # The reviewer may only APPROVE after running the tests itself and marking
+  # every requirement it derived from the issue as met.
+  require_evidence: true
+
+judge:
+  # LLM judge used next to the structural check for "all acceptance criteria
+  # are testable". If the judge call fails, the structural check still applies.
+  enabled: true
+  required: false
+
+budgets:
+  # Per job (the build job and each review/rework job are separate jobs).
+  # Tokens counted here = uncached input + cache writes + output.
+  max_tokens_per_job: 5000000
+  # Estimated with `pricing` below; only enforced for models listed there (free-tier Gemini is not).
+  max_usd_per_job: 6.0
+  # Soft wall-clock limit; the YAML `timeout-minutes` is the hard limit.
+  job_minutes: 55
+  command_timeout_seconds: 300
+  max_tool_output_chars: 12000
+
+agents:
+  # Free tier of the Gemini API, two Google accounts (mine: `gemini`; my teammate's: `gemini_b`). Each account
+  # serves a fixed set of roles and stays within its own limits; quota is also counted per model, so the work is
+  # split across two models:
+  # gemini-3.5-flash-lite (newer, for agentic work) plans and implements; gemini-3.1-flash-lite writes the
+  # tests, reviews and judges, which also keeps the reviewer on a different model from the implementer.
+  planner:      {provider: gemini, model: gemini-3.5-flash-lite, max_steps: 30, max_tokens: 16000}
+  implementer:  {provider: gemini, model: gemini-3.5-flash-lite, max_steps: 40, max_tokens: 16000}
+  test_author:  {provider: gemini, model: gemini-3.1-flash-lite, max_steps: 30, max_tokens: 16000}
+  reviewer:     {provider: gemini_b, model: gemini-3.1-flash-lite, max_steps: 40, max_tokens: 16000}
+  judge:        {provider: gemini, model: gemini-3.1-flash-lite, max_steps: 1,  max_tokens: 4000}
+  # Used only by the single-agent variant (pipeline.shared_context: true).
+  generalist:   {provider: gemini_b, model: gemini-3.5-flash-lite, max_steps: 90, max_tokens: 16000}
+
+providers:
+  anthropic:
+    kind: anthropic
+    base_url: https://api.anthropic.com
+    key: ANTHROPIC_API_KEY            # name of the repository secret
+  openai:
+    kind: openai
+    base_url: https://api.openai.com/v1
+    key: OPENAI_API_KEY
+    max_tokens_param: max_completion_tokens
+  gemini:
+    # Google's OpenAI-compatible endpoint.
+    kind: openai
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    key: GEMINI_API_KEY
+    max_tokens_param: max_tokens
+    tool_message_name: true           # tool results are matched to function calls by name
+    # JSON-schema keywords Gemini's function declarations may reject; the harness still enforces them.
+    strip_schema_keys: [additionalProperties, minLength, maxLength, minItems, maxItems, pattern, default]
+    min_interval_seconds: 6.5         # free tier allows about 10 requests per minute per model
+  gemini_b:
+    # The same endpoint with my teammate's key (their own Google account and project).
+    kind: openai
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    key: GEMINI_API_KEY_2
+    fallback_key: GEMINI_API_KEY      # used when the second key is not configured
+    max_tokens_param: max_tokens
+    tool_message_name: true
+    strip_schema_keys: [additionalProperties, minLength, maxLength, minItems, maxItems, pattern, default]
+    min_interval_seconds: 6.5
+  openrouter:
+    kind: openai
+    base_url: https://openrouter.ai/api/v1
+    key: OPENROUTER_API_KEY
+    max_tokens_param: max_tokens
+
+pricing:
+  # USD per million tokens, used for the cost estimate and max_usd_per_job.
+  # Check your provider's pricing page; models missing here are not costed.
+  claude-sonnet-5-5: {input: 2.00, output: 10.00, cache_read: 0.10, cache_write: 2.50}
+  claude-opus-5-5:   {input: 4.00, output: 20.00, cache_read: 0.40, cache_write: 5.00}
+
+sandbox:
+  # Commands matching any of these regexes are refused before they run.
+  # This is defence in depth: agents also get a scrubbed environment with no
+  # credentials, and every change is re-validated against the path policy
+  # before anything is committed.
+  deny_patterns:
+    - '\bgit\s+(push|commit|checkout|switch|reset|rebase|merge|remote|config|tag|branch|stash|clean|worktree|fetch|pull|am|cherry-pick|revert|update-ref|filter-branch|submodule|restore|gc)\b'
+    - '(^|[;&|(]\s*|\s)(sudo|su)\s'
+    - '\b(curl|wget|nc|ncat|ssh|scp|telnet|ftp)\b'
+    - '\bgh\s'
+    - '\bpip3?\s+(install|uninstall|download)\b'
+    - '-m\s+pip\s+(install|uninstall|download)\b'
+    - '/proc/[^ ]*/(environ|mem)\b'
+    - '\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+(/|~|\.\.?)(\s|$)'
+    - '\.github/autose'
+
+variants:
+  # Select with `/autose variant=<name>` (issues and PRs) or the
+  # workflow_dispatch input. Each variant gets its own branch/PR.
+  baseline: {}
+  reviewer-sees-rationale:          # D8 / D3 experiment
+    review: {include_implementer_context: true}
+  reviewer-same-model:              # D6 experiment
+    agents:
+      reviewer: {model: gemini-3.5-flash-lite}
+  single-agent:                     # D1 experiment
+    pipeline: {shared_context: true}
+  no-review-loop:                   # D2 experiment: one review, no rework
+    pipeline: {max_change_requests: 0}

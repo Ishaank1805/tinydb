@@ -1,0 +1,41 @@
+# The project's CI. AutoSE starts it with workflow_dispatch on its PR branches
+# (pushes made with GITHUB_TOKEN do not trigger push/pull_request workflows)
+# and finds the run again through the correlation id in its run name.
+name: CI
+run-name: CI · ${{ inputs.correlation_id || github.head_ref || github.ref_name }}
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      correlation_id:
+        description: "Set by AutoSE to find this run"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install
+        run: python -m pip install --disable-pip-version-check -q -e . "pytest~=9.0" "pytest-cov~=7.0"
+      - name: Test
+        run: python -m pytest -q

@@ -1,0 +1,119 @@
+# Stage 6: the independent reviewer, in its own job on a fresh runner with a
+# read-only token. The model step gets no GitHub token at all; deterministic
+# steps before and after it fetch the PR facts and post the review.
+name: AutoSE review
+
+on:
+  workflow_call:
+    inputs:
+      issue: {type: string, required: true}
+      pr: {type: string, required: true}
+      round: {type: number, required: true}
+      variant: {type: string, required: false, default: ""}
+      reviewer_context: {type: boolean, required: false, default: false}
+      context_artifact: {type: string, required: false, default: ""}
+    outputs:
+      verdict:
+        description: "approve | request_changes | error"
+        value: ${{ jobs.review.outputs.verdict }}
+      target_stage:
+        value: ${{ jobs.review.outputs.target_stage }}
+
+jobs:
+  review:
+    name: independent review round ${{ inputs.round }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read           # read and run the code; cannot push
+      pull-requests: write     # post the review as a comment
+      actions: read            # look up the CI result of the head commit
+    outputs:
+      verdict: ${{ steps.post.outputs.verdict }}
+      target_stage: ${{ steps.post.outputs.target_stage }}
+    steps:
+      - name: Paths
+        run: |
+          {
+            echo "PYTHONPATH=$GITHUB_WORKSPACE/_harness/.github/autose"
+            echo "AUTOSE_REPO_DIR=$GITHUB_WORKSPACE/repo"
+            echo "AUTOSE_TARGET_VENV=$RUNNER_TEMP/target-venv"
+            echo "AUTOSE_STATE_DIR=$RUNNER_TEMP/autose-state"
+            echo "AUTOSE_INPUT_DIR=$RUNNER_TEMP/autose-in"
+            echo "AUTOSE_SCRATCH_DIR=$RUNNER_TEMP/autose-scratch"
+            echo "AUTOSE_SECRETS_DIR=$RUNNER_TEMP/autose-secrets"
+            echo "AUTOSE_REVIEW_DIR=$RUNNER_TEMP/review-in"
+          } >> "$GITHUB_ENV"
+      - name: Check out the harness
+        uses: actions/checkout@v4
+        with:
+          path: _harness
+          sparse-checkout: .github/autose
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the harness
+        run: python -m pip install --disable-pip-version-check -q -r _harness/.github/autose/requirements.txt
+      - name: Fetch the PR head and diff (deterministic, read-only token)
+        id: prep
+        env:
+          AUTOSE_GITHUB_TOKEN: ${{ github.token }}
+          AUTOSE_PR: ${{ inputs.pr }}
+          AUTOSE_VARIANT: ${{ inputs.variant }}
+        run: python -m autose review-prepare
+      - name: Check out the repository at the PR head
+        uses: actions/checkout@v4
+        with:
+          path: repo
+          ref: ${{ steps.prep.outputs.head_sha }}
+          persist-credentials: false
+      - name: Prepare the target's own virtualenv
+        run: python -m autose setup-target
+      - name: Download the issue snapshot
+        uses: actions/download-artifact@v4
+        with:
+          name: autose-issue
+          path: ${{ runner.temp }}/autose-in/issue
+      - name: Download the implementer's account (experiment variant only)
+        if: inputs.reviewer_context && inputs.context_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.context_artifact }}
+          path: ${{ runner.temp }}/autose-in/context
+      - name: Stage model credentials only (no GitHub token for the reviewer)
+        env:
+          T_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY }}
+          T_OPENAI: ${{ secrets.OPENAI_API_KEY }}
+          T_GEMINI: ${{ secrets.GEMINI_API_KEY }}
+          T_GEMINI2: ${{ secrets.GEMINI_API_KEY_2 }}
+          T_OPENROUTER: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          umask 077
+          mkdir -p "$AUTOSE_SECRETS_DIR"
+          put() { if [ -n "$2" ]; then printf '%s' "$2" > "$AUTOSE_SECRETS_DIR/$1"; fi; }
+          put ANTHROPIC_API_KEY "$T_ANTHROPIC"
+          put OPENAI_API_KEY "$T_OPENAI"
+          put GEMINI_API_KEY "$T_GEMINI"
+          put GEMINI_API_KEY_2 "$T_GEMINI2"
+          put OPENROUTER_API_KEY "$T_OPENROUTER"
+      - name: Independent review (model step, no GitHub token)
+        env:
+          AUTOSE_PR: ${{ inputs.pr }}
+          AUTOSE_ROUND: ${{ inputs.round }}
+          AUTOSE_VARIANT: ${{ inputs.variant }}
+        run: python -m autose review
+      - name: Publish the review on the PR
+        id: post
+        env:
+          AUTOSE_GITHUB_TOKEN: ${{ github.token }}
+          AUTOSE_VARIANT: ${{ inputs.variant }}
+        run: python -m autose review-post
+      - name: Upload review.md
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autose-review-r${{ inputs.round }}
+          path: ${{ runner.temp }}/autose-state
+          overwrite: true
+          retention-days: 90

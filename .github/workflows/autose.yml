@@ -1,0 +1,268 @@
+# AutoSE: issue in, tested and independently reviewed pull request out.
+#
+# Control flow: a gate job, then the build job (stages 1-5, a Python state
+# machine with bounded inner loops), then up to three review jobs and two
+# rework jobs unrolled as a fixed DAG, then a report job. The reviewer always
+# runs in its own job with a read-only token. Nothing in here merges.
+name: AutoSE
+run-name: >-
+  AutoSE ${{ github.event_name == 'workflow_dispatch' && format('{0} #{1}', inputs.mode, inputs.number)
+  || format('#{0} ({1})', github.event.issue.number, github.event_name) }}
+
+on:
+  issues:
+    types: [labeled]          # a maintainer adds the label "autose"
+  issue_comment:
+    types: [created]          # "/autose" on an issue, "/autose review" on an open PR
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full = whole pipeline for an issue; review = one independent review of a PR"
+        type: choice
+        options: [full, review]
+        default: full
+      number:
+        description: "Issue number (full) or pull request number (review)"
+        type: string
+        required: true
+      issue:
+        description: "Review mode only: the issue the PR addresses (optional if the branch or body says)"
+        type: string
+        required: false
+        default: ""
+      variant:
+        description: "Experiment variant from autose.config.yml (empty = baseline)"
+        type: string
+        required: false
+        default: ""
+
+permissions: {}               # every job asks for exactly what it needs
+
+# One run per issue at a time; events that are not AutoSE triggers get a
+# unique group so they can never displace a queued real run.
+concurrency:
+  group: >-
+    ${{ ((github.event_name == 'issues' && github.event.label.name == 'autose')
+    || (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/autose'))
+    || github.event_name == 'workflow_dispatch')
+    && format('autose-{0}', github.event.issue.number || inputs.number)
+    || format('autose-ignored-{0}', github.run_id) }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    name: Gate (trigger, permission, issue snapshot)
+    if: >-
+      github.event_name == 'workflow_dispatch'
+      || (github.event_name == 'issues' && github.event.label.name == 'autose')
+      || (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/autose')
+      && github.event.comment.user.type != 'Bot')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+      mode: ${{ steps.gate.outputs.mode }}
+      issue: ${{ steps.gate.outputs.issue }}
+      pr: ${{ steps.gate.outputs.pr }}
+      variant: ${{ steps.gate.outputs.variant }}
+      branch: ${{ steps.gate.outputs.branch }}
+      status_comment_id: ${{ steps.gate.outputs.status_comment_id }}
+      max_change_requests: ${{ steps.gate.outputs.max_change_requests }}
+      reviewer_context: ${{ steps.gate.outputs.reviewer_context }}
+    steps:
+      - name: Check out the harness
+        uses: actions/checkout@v4
+        with:
+          path: _harness
+          sparse-checkout: .github/autose
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the harness
+        run: python -m pip install --disable-pip-version-check -q -r _harness/.github/autose/requirements.txt
+      - name: Gate
+        id: gate
+        env:
+          AUTOSE_GITHUB_TOKEN: ${{ github.token }}
+          AUTOSE_STATE_DIR: ${{ runner.temp }}/autose-issue
+          PYTHONPATH: ${{ github.workspace }}/_harness/.github/autose
+        run: python -m autose gate
+      - name: Upload the issue snapshot
+        if: steps.gate.outputs.proceed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: autose-issue
+          path: ${{ runner.temp }}/autose-issue
+          overwrite: true
+          retention-days: 90
+
+  build:
+    name: Build (stages 1-5)
+    needs: gate
+    if: needs.gate.outputs.proceed == 'true' && needs.gate.outputs.mode == 'full'
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    uses: ./.github/workflows/autose-build.yml
+    with:
+      issue: ${{ needs.gate.outputs.issue }}
+      round: 0
+      start_stage: requirements
+      variant: ${{ needs.gate.outputs.variant }}
+      branch: ${{ needs.gate.outputs.branch }}
+      status_comment_id: ${{ needs.gate.outputs.status_comment_id }}
+    secrets: inherit
+
+  review_1:
+    name: Review (round 1)
+    needs: [gate, build]
+    if: >-
+      !cancelled() && needs.gate.outputs.proceed == 'true'
+      && (needs.gate.outputs.mode == 'review' || needs.build.outputs.status == 'released')
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    uses: ./.github/workflows/autose-review.yml
+    with:
+      issue: ${{ needs.gate.outputs.issue }}
+      pr: ${{ needs.gate.outputs.mode == 'review' && needs.gate.outputs.pr || needs.build.outputs.pr }}
+      round: 1
+      variant: ${{ needs.gate.outputs.variant }}
+      reviewer_context: ${{ needs.gate.outputs.reviewer_context == 'true' }}
+      context_artifact: ${{ needs.gate.outputs.mode == 'full' && 'autose-state-r0' || '' }}
+    secrets: inherit
+
+  rework_1:
+    name: Rework (round 1)
+    needs: [gate, build, review_1]
+    if: >-
+      !cancelled() && needs.gate.outputs.mode == 'full'
+      && needs.review_1.outputs.verdict == 'request_changes'
+      && fromJSON(needs.gate.outputs.max_change_requests) >= 1
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    uses: ./.github/workflows/autose-build.yml
+    with:
+      issue: ${{ needs.gate.outputs.issue }}
+      round: 1
+      start_stage: ${{ needs.review_1.outputs.target_stage }}
+      variant: ${{ needs.gate.outputs.variant }}
+      branch: ${{ needs.gate.outputs.branch }}
+      status_comment_id: ${{ needs.gate.outputs.status_comment_id }}
+      state_artifact: autose-state-r0
+      review_artifact: autose-review-r1
+    secrets: inherit
+
+  review_2:
+    name: Review (round 2)
+    needs: [gate, rework_1]
+    if: "!cancelled() && needs.rework_1.outputs.status == 'released'"
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    uses: ./.github/workflows/autose-review.yml
+    with:
+      issue: ${{ needs.gate.outputs.issue }}
+      pr: ${{ needs.rework_1.outputs.pr }}
+      round: 2
+      variant: ${{ needs.gate.outputs.variant }}
+      reviewer_context: ${{ needs.gate.outputs.reviewer_context == 'true' }}
+      context_artifact: autose-state-r1
+    secrets: inherit
+
+  rework_2:
+    name: Rework (round 2)
+    needs: [gate, rework_1, review_2]
+    if: >-
+      !cancelled() && needs.review_2.outputs.verdict == 'request_changes'
+      && fromJSON(needs.gate.outputs.max_change_requests) >= 2
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    uses: ./.github/workflows/autose-build.yml
+    with:
+      issue: ${{ needs.gate.outputs.issue }}
+      round: 2
+      start_stage: ${{ needs.review_2.outputs.target_stage }}
+      variant: ${{ needs.gate.outputs.variant }}
+      branch: ${{ needs.gate.outputs.branch }}
+      status_comment_id: ${{ needs.gate.outputs.status_comment_id }}
+      state_artifact: autose-state-r1
+      review_artifact: autose-review-r2
+    secrets: inherit
+
+  review_3:
+    name: Review (round 3, final)
+    needs: [gate, rework_2]
+    if: "!cancelled() && needs.rework_2.outputs.status == 'released'"
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    uses: ./.github/workflows/autose-review.yml
+    with:
+      issue: ${{ needs.gate.outputs.issue }}
+      pr: ${{ needs.rework_2.outputs.pr }}
+      round: 3
+      variant: ${{ needs.gate.outputs.variant }}
+      reviewer_context: ${{ needs.gate.outputs.reviewer_context == 'true' }}
+      context_artifact: autose-state-r2
+    secrets: inherit
+
+  report:
+    name: Report (a human decides)
+    needs: [gate, build, review_1, rework_1, review_2, rework_2, review_3]
+    if: always() && needs.gate.outputs.proceed == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Check out the harness
+        uses: actions/checkout@v4
+        with:
+          path: _harness
+          sparse-checkout: .github/autose
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install the harness
+        run: python -m pip install --disable-pip-version-check -q -r _harness/.github/autose/requirements.txt
+      - name: Download every artifact of this run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: autose-*
+          path: ${{ runner.temp }}/artifacts
+      - name: Report
+        env:
+          AUTOSE_GITHUB_TOKEN: ${{ github.token }}
+          AUTOSE_NEEDS_JSON: ${{ toJSON(needs) }}
+          AUTOSE_ARTIFACTS_DIR: ${{ runner.temp }}/artifacts
+          AUTOSE_STATE_DIR: ${{ runner.temp }}/autose-run-summary
+          PYTHONPATH: ${{ github.workspace }}/_harness/.github/autose
+        run: python -m autose report
+      - name: Upload the run summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: autose-run-summary
+          path: ${{ runner.temp }}/autose-run-summary
+          overwrite: true
+          retention-days: 90
