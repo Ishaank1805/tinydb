@@ -514,6 +514,14 @@ def test_fragment():
     assert not query({'a': 4, 'b': 'no', 'c': 'yes'})
 
 
+def test_fragment_hash_includes_path():
+    q1 = Query().billing.fragment({'country': 'DE'})
+    q2 = Query().shipping.fragment({'country': 'DE'})
+    assert q1 != q2
+    assert hash(q1) != hash(q2)
+    assert q1 == Query().billing.fragment({'country': 'DE'})
+
+
 def test_fragment_with_path():
     query = Query().doc.fragment({'a': 4, 'b': True})
 
