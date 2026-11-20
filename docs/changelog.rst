@@ -19,6 +19,11 @@ see `semver.org <http://semver.org/>`_
           syntax (``Query()['some']['nested']['field']``) that will
           not break even when new methods are added to the ``Query`` API.
 
+unreleased
+^^^^^^^^^^
+
+- Feature: new ``append(field, value)`` operation for list fields.
+
 v4.9.0 (2026-08-06)
 ^^^^^^^^^^^^^^^^^^^
 
