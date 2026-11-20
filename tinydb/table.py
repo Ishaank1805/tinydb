@@ -551,6 +551,11 @@ class Table:
                 # data
                 table[doc_id].update(fields)
 
+        # Materialize ``updates`` once: it is iterated again for every
+        # document, so a one-shot iterator (e.g. a generator) would otherwise
+        # be exhausted after the first document.
+        updates = list(updates)
+
         # Perform the update operation for documents specified by a query
 
         # Collect affected doc_ids
