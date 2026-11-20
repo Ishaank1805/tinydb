@@ -64,3 +64,23 @@ def test_linked_issue_resolution():
     assert linked_issue({'head': {'ref': 'seeded/s1'}, 'body': 'Fixes #9'}, None, 'autose/issue-') == 9
     assert linked_issue({'head': {'ref': 'autose/issue-7'}}, 3, 'autose/issue-') == 3
     assert linked_issue({'head': {'ref': 'x'}, 'body': ''}, None, 'autose/issue-') is None
+
+
+def test_documentation_only_plans_pass_but_code_plans_still_name_functions(tmp_path):
+    (tmp_path / 'docs').mkdir()
+    (tmp_path / 'docs' / 'intro.rst').write_text('behaviour\n')
+    (tmp_path / 'README.rst').write_text('behaviour\n')
+    (tmp_path / 'tinydb').mkdir()
+    (tmp_path / 'tinydb' / 'table.py').write_text('class Table:\n    pass\n')
+    spec = {'acceptance_criteria': [ac(1)]}
+    tests = [{'name': 'test_ac1_spelling', 'covers': ['AC-1'], 'description': 'American spelling'}]
+    docs = [{'path': 'README.rst', 'new_file': False, 'symbols': [], 'description': 'use American spelling'},
+            {'path': 'docs/intro.rst', 'new_file': False, 'symbols': [], 'description': 'use American spelling'}]
+    args = (spec, tmp_path, ['tinydb/**', 'docs/**', 'README.rst'], ['.github/**'], 'tests/test_issue_7.py', 'tests',
+            ['docs/**', 'README.rst'])
+    result = check_design({'changes': docs, 'tests': tests}, *args)
+    assert result.passed and any('documentation-only' in n for n in result.notes)
+    code = docs + [{'path': 'tinydb/table.py', 'new_file': False, 'symbols': [], 'description': 'touch the code'}]
+    result = check_design({'changes': code, 'tests': tests}, *args)
+    assert not result.passed and any('name the functions' in p for p in result.problems)
+    assert not check_design({'changes': docs, 'tests': tests}, *args[:-1]).passed   # old behaviour without doc globs

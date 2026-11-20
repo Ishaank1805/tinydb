@@ -86,7 +86,7 @@ def evaluate(ctx: Any) -> dict:
     mode = ctx.cfg.get('pipeline.fail_to_pass', 'soft')
     f2p: dict[str, Any] = {'mode': mode, 'failing_on_base': None, 'cases': {}}
     if mode != 'off' and new_cases:
-        changed = [p for p in ctx.git.changed_files(ctx.base_sha) if matches(p, ctx.source_globs)]
+        changed = [p for p in ctx.git.changed_files(ctx.base_sha) if matches(p, ctx.source_globs + ctx.doc_globs)]
         with base_sources(ctx.git, ctx.base_sha, changed, ctx.repo_dir):
             base_run = run_tests(ctx.sandbox, test_cmd, ctx.scratch / 'junit-base.xml', [ctx.test_file])
         f2p['cases'] = {c.name: c.outcome for c in base_run.cases}

@@ -85,7 +85,8 @@ def design_md(ctx: Any, design: dict | None, check: Any, arch_used: bool, stop_r
     if check is not None:
         out.append('## Check: the plan names the files and functions to change\n'
                    'Every path must exist (or be marked new) and be a file the pipeline may change; every '
-                   'function must exist in that file (AST) or be marked new; every criterion needs a test.\n\n'
+                   'function must exist in that file (AST) or be marked new; every criterion needs a test. A '
+                   'documentation-only plan names no functions.\n\n'
                    + check.render() + '\n')
     arch = 'with' if arch_used else '**without** (ARCHITECTURE.md not found!)'
     out.append(f'---\n_Written by the planner agent {arch} the A2 architecture documentation._\n')
