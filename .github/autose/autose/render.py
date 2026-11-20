@@ -188,6 +188,9 @@ def review_md(meta: dict, review: dict | None, facts: dict, error: str = '') -> 
     else:
         out.append('## Findings\n_none_\n')
     out.append(f"## What the reviewer ran itself\n{review.get('probes', '')}\n")
+    if meta.get('diff_facts_md'):
+        out.append('<details><summary>Facts the harness gave the reviewer</summary>\n\n' + meta['diff_facts_md']
+                   + '\n\n</details>\n')
     met = sum(1 for i in review.get('issue_checklist') or [] if i.get('status') == 'met')
     total = len(review.get('issue_checklist') or [])
     blockers = sum(1 for f in findings if f.get('severity') in ('blocker', 'major'))
