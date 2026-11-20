@@ -83,7 +83,7 @@ budgets:
   # Estimated with `pricing` below; only enforced for models listed there (free-tier Gemini is not).
   max_usd_per_job: 6.0
   # Soft wall-clock limit; the YAML `timeout-minutes` is the hard limit.
-  job_minutes: 55
+  job_minutes: 80
   command_timeout_seconds: 300
   max_tool_output_chars: 12000
 

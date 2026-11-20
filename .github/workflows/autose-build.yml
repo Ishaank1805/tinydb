@@ -32,7 +32,7 @@ jobs:
   build:
     name: ${{ inputs.round == 0 && 'stages 1-5' || format('rework round {0}', inputs.round) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 95
     permissions:
       contents: write          # push the autose/* branch (never main: branch protection)
       pull-requests: write     # open/update the PR
