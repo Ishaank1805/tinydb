@@ -122,3 +122,17 @@ def test_reviewer_uses_the_second_key_and_falls_back_to_the_first():
     assert make_client(cfg, 'implementer', both).api_key == 'key-mine-0001'
     only_mine = Secrets({'GEMINI_API_KEY': 'key-mine-0001'})
     assert make_client(cfg, 'reviewer', only_mine).api_key == 'key-mine-0001'
+
+
+def test_command_handler_resolves_scratch_paths(tmp_path):
+    from autose.tools import command_handler
+    scratch = tmp_path / 'scratch'
+    scratch.mkdir()
+    (scratch / 'hello.txt').write_text('hi from scratch\n')
+    sandbox = Sandbox(tmp_path, extra_env={'SCRATCH': str(scratch)})
+    cmd = command_handler(sandbox)
+    res = cmd({'command': 'cat scratch/hello.txt'})
+    assert 'hi from scratch' in res.content
+    res2 = cmd({'command': 'cat ./scratch/hello.txt'})
+    assert 'hi from scratch' in res2.content
+

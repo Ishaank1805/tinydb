@@ -30,7 +30,7 @@ VERDICT_LABEL = {'approve': 'autose:approved', 'request_changes': 'autose:change
 
 
 def review_problems(args: dict, commands: list, require_evidence: bool = True, require_probe: bool = False,
-                    probe_markers: tuple = ('compare.sh', '$SCRATCH')) -> list[str]:
+                    probe_markers: tuple = ('compare.sh', '$SCRATCH', 'scratch/')) -> list[str]:
     """Evidence gate: why a submitted review contradicts itself (empty list = consistent)."""
     problems = []
     test_runs = [c for c in commands if re.search(r'\bpytest\b', c.command) and not c.denied]
@@ -128,7 +128,7 @@ def review(cfg: Config, secrets: Any, make_llm: Any = None) -> int:
                                        ctx.source_globs, cfg.get('target.test_dir') or 'tests', ctx.doc_globs)
         facts_md = difffacts.markdown(diff_facts, base_status)
     require_probe = bool(cfg.get('review.require_probe', False))
-    probe_markers = ('compare.sh', '$SCRATCH', '${SCRATCH}', str(scratch))
+    probe_markers = ('compare.sh', '$SCRATCH', '${SCRATCH}', str(scratch), 'scratch/')
     commands: list = []
     require_evidence = bool(cfg.get('review.require_evidence', True))
     seen = {'n': 0}
