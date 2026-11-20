@@ -100,7 +100,7 @@ def run_doctor(cfg: Config, secrets: Any, skip_models: bool = False, skip_tests:
         except GitHubError as exc:
             add('❌', 'GitHub settings', str(exc)[:300])
     if not skip_tests:
-        proc = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', str(HARNESS_DIR / 'tests')],
+        proc = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider', '-o', 'addopts=', str(HARNESS_DIR / 'tests')],
                               capture_output=True, text=True, cwd=HARNESS_DIR)
         tail = (proc.stdout + proc.stderr).strip().splitlines()[-1:] or ['no output']
         add('✅' if proc.returncode == 0 else '❌', 'harness unit tests', tail[0])
