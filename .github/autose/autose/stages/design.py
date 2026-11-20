@@ -26,7 +26,7 @@ def run(ctx: Any, feedback: str = '') -> StageOutcome:
         seen['n'] += 1
         design = dict(args)
         result = checks.check_design(design, spec, ctx.repo_dir, editable, ctx.protected_globs,
-                                     ctx.test_file, test_dir)
+                                     ctx.test_file, test_dir, ctx.doc_globs)
         seen.update(design=design, check=result)
         ctx.events.emit('check', stage='design', passed=result.passed, submission=seen['n'],
                         problems=len(result.problems))

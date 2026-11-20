@@ -138,16 +138,18 @@ def normalize_symbol(name: str, known: set[str]) -> str:
 
 
 def check_design(design: dict, spec: dict, repo: Path, editable_globs: list[str], protected: list[str],
-                 test_file: str, test_dir: str) -> CheckResult:
+                 test_file: str, test_dir: str, doc_globs: list[str] | tuple = ()) -> CheckResult:
     problems: list[str] = []
     notes: list[str] = []
     code_symbols = 0
+    paths: list[str] = []
     for change in design.get('changes') or []:
         path = str(change.get('path', '')).strip()
         path = path[2:] if path.startswith('./') else path
         if not path:
             problems.append('a change has no path')
             continue
+        paths.append(path)
         if matches(path, protected):
             problems.append(f'{path}: protected path')
             continue
@@ -190,7 +192,10 @@ def check_design(design: dict, spec: dict, repo: Path, editable_globs: list[str]
                 sample = ', '.join(sorted(known)[:30])
                 problems.append(f'{path}: {name} does not exist (mark it new if it should be added). '
                                 f'Existing names include: {sample}')
-    if code_symbols == 0:
+    docs_only = bool(paths) and all(matches(p, doc_globs) and not p.endswith('.py') for p in paths)
+    if code_symbols == 0 and docs_only:
+        notes.append('documentation-only change: there are no functions to name')
+    elif code_symbols == 0:
         problems.append('the plan must name at least one function, class or method in a Python file')
     ids = ac_ids(spec)
     covered: set[str] = set()

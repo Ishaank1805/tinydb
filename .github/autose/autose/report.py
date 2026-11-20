@@ -140,6 +140,7 @@ def run_report(cfg: Any, secrets: Any) -> int:
     summary['head_sha'] = (last_build.get('outputs') or {}).get('head_sha') or next(
         (st.get('head_sha') for st in reversed(states) if st.get('head_sha')), '')
     summary['check_stats'], summary['loops'] = check_stats(all_events)
+    summary['workflow_sha'] = env.get('GITHUB_SHA', '')
     summary['ci_runs'] = next((st.get('ci_runs') for st in reversed(states) if st.get('ci_runs')), [])
     final = f"{titles.get(result, result)}" + (f' - PR {pr}' if pr else '')
     out_dir = Path(env.get('AUTOSE_STATE_DIR') or 'run-summary')
