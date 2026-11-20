@@ -23,6 +23,10 @@ on:
         value: ${{ jobs.build.outputs.pr_url }}
       head_sha:
         value: ${{ jobs.build.outputs.head_sha }}
+      stopped_stage:
+        value: ${{ jobs.build.outputs.stopped_stage }}
+      reason:
+        value: ${{ jobs.build.outputs.reason }}
 
 jobs:
   build:
@@ -39,6 +43,8 @@ jobs:
       pr: ${{ steps.run.outputs.pr }}
       pr_url: ${{ steps.run.outputs.pr_url }}
       head_sha: ${{ steps.run.outputs.head_sha }}
+      stopped_stage: ${{ steps.run.outputs.stopped_stage }}
+      reason: ${{ steps.run.outputs.reason }}
     steps:
       - name: Paths
         run: |
