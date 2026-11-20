@@ -676,7 +676,6 @@ def test_drop_table():
     default_table_name = db.table(db.default_table_name).name
 
     assert [] == list(db.tables())
-    db.drop_table(default_table_name)
 
     db.insert({'a': 1})
     assert [default_table_name] == list(db.tables())
@@ -693,8 +692,17 @@ def test_drop_table():
     assert set() == db.tables()
     assert table_name not in db._tables
 
-    db.drop_table('non-existent-table-name')
+    with pytest.raises(ValueError):
+        db.drop_table('non-existent-table-name')
     assert set() == db.tables()
+
+
+def test_rename_table():
+    db = TinyDB(storage=MemoryStorage)
+    db.table('users').insert({'name': 'ana'})
+    db.rename_table('users', 'customers')
+    assert db.tables() == {'customers'}
+    assert db.table('customers').all() == [{'name': 'ana'}]
 
 
 def test_empty_write(tmpdir):
