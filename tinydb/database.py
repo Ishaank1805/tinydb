@@ -185,21 +185,46 @@ class TinyDB(TableBase):
         if name in self._tables:
             del self._tables[name]
 
-        data = self.storage.read()
-
-        # The database is uninitialized, there's nothing to do
-        if data is None:
-            return
-
-        # The table does not exist, there's nothing to do
-        if name not in data:
-            return
+        data = self._require_table(name)
 
         # Remove the table from the data dict
         del data[name]
 
         # Store the updated data back to the storage
         self.storage.write(data)
+
+    def rename_table(self, old_name: str, new_name: str) -> None:
+        """
+        Rename a table. Documents and their IDs are kept.
+
+        :param old_name: The current name of the table.
+        :param new_name: The new name of the table.
+        """
+        data = self._require_table(old_name)
+
+        if new_name in data:
+            raise ValueError(f'Table {new_name!r} already exists')
+
+        data[new_name] = data.pop(old_name)
+        self.storage.write(data)
+
+        for name in (old_name, new_name):
+            table = self._tables.pop(name, None)
+            if table is not None:
+                table.clear_cache()
+
+    def _require_table(self, name: str) -> dict:
+        """
+        Read the database and make sure that the table ``name`` exists.
+        Shared by ``drop_table`` and ``rename_table`` so that both report
+        missing tables consistently.
+        """
+        data = self.storage.read() or {}
+
+        if name not in data:
+            raise ValueError(f'Table {name!r} does not exist')
+
+        return data
 
     @property
     def storage(self) -> Storage:
