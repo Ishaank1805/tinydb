@@ -539,6 +539,7 @@ class Table:
 
         :returns: a list containing the updated document's ID
         """
+        updates = list(updates)
 
         # Define the function that will perform the update
         def perform_update(fields, table, doc_id):
