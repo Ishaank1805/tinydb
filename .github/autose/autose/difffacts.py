@@ -19,7 +19,22 @@ from .tools import matches
 COMPARE_SCRIPT = '''#!/usr/bin/env bash
 # Run one probe script on the PR head and on the code before the change (rebuilt from the diff).
 # Any difference in behaviour must be one the issue asks for.
-probe="$1"; [ -f "$probe" ] || probe="$SCRATCH/$1"
+target="$1"
+if [ "$target" = "python" ] || [ "$target" = "python3" ]; then
+    shift
+    target="$1"
+fi
+probe=""
+for cand in "$target" "$SCRATCH/$target" "$SCRATCH/${target#scratch/}" "$SCRATCH/${target#./scratch/}"; do
+    if [ -n "$cand" ] && [ -f "$cand" ]; then
+        probe="$cand"
+        break
+    fi
+done
+if [ -z "$probe" ]; then
+    echo "probe file not found: $target" >&2
+    exit 2
+fi
 echo "=== PR head ==="
 PYTHONPATH="$REPO" python "$probe"; echo "[exit code $?]"
 echo "=== before the change ==="

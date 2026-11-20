@@ -65,6 +65,7 @@ def test_compare_script_runs_a_probe_on_both_versions(tmp_path):
     script = difffacts.write_compare_script(scratch)
     (scratch / 'probe.py').write_text('from pkg.core import Box\nprint(hasattr(Box, "take"))\n')
     env = {'PATH': '/usr/bin:/bin', 'SCRATCH': str(scratch), 'REPO': str(repo), 'BASE': str(base)}
-    out = subprocess.run(['bash', str(script), 'probe.py'], env=env, capture_output=True, text=True).stdout
-    head, before = out.split('=== before the change ===')
-    assert 'True' in head and 'False' in before
+    for invocation in [['probe.py'], ['scratch/probe.py'], ['python', 'scratch/probe.py'], ['python', 'probe.py']]:
+        out = subprocess.run(['bash', str(script), *invocation], env=env, capture_output=True, text=True).stdout
+        head, before = out.split('=== before the change ===')
+        assert 'True' in head and 'False' in before
