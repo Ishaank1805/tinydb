@@ -550,6 +550,12 @@ To remove a table from a database, use:
 
 >>> db.drop_table('table_name')
 
+To rename a table and keep its documents, use:
+
+>>> db.rename_table('table_name', 'new_name')
+
+It raises ``ValueError`` if the table does not exist or the new name is already taken.
+
 If on the other hand you want to remove all tables, use the counterpart:
 
 >>> db.drop_tables()

@@ -837,3 +837,28 @@ def test_lambda_query():
     query.is_cacheable = lambda: False
     assert db.search(query) == [{'foo': 'bar'}]
     assert not db._query_cache
+
+
+def test_rename_table_keeps_documents(db):
+    db.table('old').insert({'x': 1})
+    db.rename_table('old', 'new')
+    assert 'old' not in db.tables() and db.table('new').all() == [{'x': 1}]
+
+
+def test_rename_table_refuses_to_overwrite(db):
+    db.table('a').insert({'x': 1})
+    db.table('b').insert({'x': 2})
+    with pytest.raises(ValueError):
+        db.rename_table('a', 'b')
+
+
+def test_rename_missing_table_raises(db):
+    with pytest.raises(ValueError):
+        db.rename_table('nope', 'other')
+
+
+def test_rename_table_does_not_serve_stale_cached_results(db):
+    db.table('old').insert({'x': 1})
+    assert db.table('new').search(where('x') == 1) == []
+    db.rename_table('old', 'new')
+    assert db.table('new').search(where('x') == 1) == [{'x': 1}]
