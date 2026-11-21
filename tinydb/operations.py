@@ -23,6 +23,21 @@ def delete(field: str) -> Callable[[MutableMapping], None]:
     return transform
 
 
+def append(field: str, value: Any) -> Callable[[MutableMapping], None]:
+    """
+    Append ``value`` to a list field in the document.
+    """
+    def transform(doc: MutableMapping):
+        if field not in doc:
+            doc[field] = [value]
+        else:
+            if not isinstance(doc[field], list):
+                raise TypeError(f"Field {field} is not a list")
+            doc[field].append(value)
+
+    return transform
+
+
 def add(field: str, n: Union[int, float, str]) -> Callable[[MutableMapping], None]:
     """
     Add ``n`` to a given field in the document.
