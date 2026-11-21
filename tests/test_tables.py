@@ -197,3 +197,9 @@ def test_persist_empty_does_not_wipe_existing_data(tmpdir):
     assert len(table) == 1
     assert table.all() == [{'a': 1}]
     db.close()
+
+
+def test_document_repr_shows_doc_id(db):
+    doc = db.table('_default').get(doc_id=1)
+    assert repr(doc) == "Document({'int': 1, 'char': 'a'}, doc_id=1)"
+    assert doc == {'int': 1, 'char': 'a'}

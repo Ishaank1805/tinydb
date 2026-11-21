@@ -19,6 +19,13 @@ see `semver.org <http://semver.org/>`_
           syntax (``Query()['some']['nested']['field']``) that will
           not break even when new methods are added to the ``Query`` API.
 
+unreleased
+^^^^^^^^^^
+
+- Improvement: ``Document`` objects now show their ``doc_id`` when printed,
+  e.g. ``Document({'name': 'John'}, doc_id=1)``. Equality with plain dicts
+  and JSON serialization are unchanged.
+
 v4.9.0 (2026-08-06)
 ^^^^^^^^^^^^^^^^^^^
 

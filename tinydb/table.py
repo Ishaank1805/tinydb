@@ -31,6 +31,26 @@ class Document(dict):
         super().__init__(value)
         self.doc_id = doc_id
 
+    def __repr__(self):
+        # Include the ID so printed results can be told apart:
+        # ``Document({'name': 'John'}, doc_id=1)``. Equality, ``dict(doc)``
+        # and JSON serialization are unaffected.
+        return '{}({}, doc_id={!r})'.format(
+            type(self).__name__, dict.__repr__(self), self.doc_id
+        )
+
+    def __eq__(self, other):
+        # Two documents are the same record only if their IDs match too.
+        if isinstance(other, Document):
+            return self.doc_id == other.doc_id and dict.__eq__(self, other)
+        return dict.__eq__(self, other)
+
+    def __ne__(self, other):
+        result = self.__eq__(other)
+        return result if result is NotImplemented else not result
+
+    __hash__ = None
+
 
 class Table:
     """
