@@ -39,7 +39,7 @@ TinyDB is:
   and PyPy.
 
 - **powerfully extensible:** You can easily extend TinyDB by writing new
-  storages or modify the behaviour of storages with Middlewares.
+  storages or modify the behavior of storages with Middlewares.
 
 - **100% test coverage:** No explanation needed.
 
