@@ -837,3 +837,11 @@ def test_lambda_query():
     query.is_cacheable = lambda: False
     assert db.search(query) == [{'foo': 'bar'}]
     assert not db._query_cache
+
+
+def test_update_multiple_accepts_a_generator(db: TinyDB):
+    db.drop_tables()
+    db.insert_multiple([{'a': 1}, {'a': 2}])
+    pairs = (({'b': i}, where('a') == i) for i in (1, 2))
+    assert sorted(db.update_multiple(pairs)) == [1, 2]
+    assert len(db.search(where('b').exists())) == 2
