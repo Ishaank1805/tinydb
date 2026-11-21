@@ -556,6 +556,8 @@ class Table:
         # Collect affected doc_ids
         updated_ids = []
 
+        updates = list(updates)
+
         def updater(table: dict):
             # We need to convert the keys iterator to a list because
             # we may remove entries from the ``table`` dict during
