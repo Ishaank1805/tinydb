@@ -31,6 +31,14 @@ class Document(dict):
         super().__init__(value)
         self.doc_id = doc_id
 
+    def __repr__(self):
+        # Include the ID so printed results can be told apart:
+        # ``Document({'name': 'John'}, doc_id=1)``. Equality, ``dict(doc)``
+        # and JSON serialization are unaffected.
+        return '{}({}, doc_id={!r})'.format(
+            type(self).__name__, dict.__repr__(self), self.doc_id
+        )
+
 
 class Table:
     """
