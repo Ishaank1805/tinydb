@@ -51,9 +51,8 @@ pipeline:
   max_redesigns: 1                  # failing tests / implementer request -> back to design
   max_test_revisions: 1             # implementer may dispute an acceptance test once
   # Reviewer -> back to the stage that needs fixing, at most this many times.
-  # Each rework is followed by a fresh independent review. Must be 0, 1 or 2
-  # (the workflow unrolls two rework rounds).
-  max_change_requests: 2
+  # Each rework is followed by a fresh independent review. 1 allows at most 2 review rounds.
+  max_change_requests: 1
   # "soft": if no new test fails on the base code, ask the test author once to
   # strengthen the tests, then continue with a warning. "hard": stop instead.
   fail_to_pass: soft                # soft | hard | off
