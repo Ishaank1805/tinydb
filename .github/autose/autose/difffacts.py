@@ -8,6 +8,7 @@ of the head checkout, so no other commit is ever checked out.
 from __future__ import annotations
 
 import ast
+import os
 import re
 import shutil
 import subprocess
@@ -83,8 +84,13 @@ def build_base_tree(repo: Path, diff_path: Path, dest: Path) -> str | None:
         shutil.rmtree(dest)
     shutil.copytree(repo, dest, ignore=shutil.ignore_patterns('.git', '__pycache__', '.pytest_cache', '.venv'))
     shutil.rmtree(dest / '.github' / 'autose', ignore_errors=True)        # the harness stays hidden
-    proc = subprocess.run(['git', 'apply', '-R', '--whitespace=nowarn', str(diff_path)], cwd=dest,
-                          capture_output=True, text=True)
+    # GIT_CEILING_DIRECTORIES: if dest sat inside some git repository, `git apply` would silently skip
+    # every file outside dest and report success; --verbose lets us detect any skipped file.
+    env = {**os.environ, 'GIT_CEILING_DIRECTORIES': str(dest.parent)}
+    proc = subprocess.run(['git', 'apply', '-R', '--verbose', '--whitespace=nowarn', str(diff_path)], cwd=dest,
+                          capture_output=True, text=True, env=env)
+    if proc.returncode == 0 and 'Skipped patch' in proc.stderr:
+        proc = subprocess.CompletedProcess(proc.args, 1, proc.stdout, 'files were skipped: ' + proc.stderr)
     if proc.returncode != 0:
         shutil.rmtree(dest, ignore_errors=True)
         return (proc.stderr.strip() or 'git apply -R failed')[:300]
